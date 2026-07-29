@@ -27,14 +27,40 @@ import {
 import { privateKeyToAccount, generatePrivateKey } from 'viem/accounts'
 import * as chains from 'viem/chains'
 
-const ARGV = process.argv.slice(2)
+// `--flag value` and `--flag=value` are both normalised to the separated form.
+// This is money-moving code and the parser used to match `--dry-run` EXACTLY, so
+// `--dry-run=true` (an ordinary way to write it) left DRY false and made a REAL
+// payment. An unrecognised flag is now fatal rather than ignored, for the same
+// reason: silently discarding an instruction the user typed is how you spend money
+// they did not agree to spend.
+const ARGV = process.argv.slice(2).flatMap((a) =>
+  a.startsWith('--') && a.includes('=') ? [a.slice(0, a.indexOf('=')), a.slice(a.indexOf('=') + 1)] : [a],
+)
 const has = (f) => ARGV.includes(f)
 const val = (f, d) => { const i = ARGV.indexOf(f); return i >= 0 && ARGV[i + 1] ? ARGV[i + 1] : d }
 
+const KNOWN_FLAGS = new Set(['--json', '--dry-run', '--url', '--chain', '--body', '--max-price', '--help'])
+for (const a of ARGV) {
+  if (a.startsWith('--') && !KNOWN_FLAGS.has(a)) {
+    console.error(`unknown option ${a}. Known: ${[...KNOWN_FLAGS].join(', ')}`)
+    process.exit(2)
+  }
+}
+
 const JSON_OUT = has('--json')
 const DRY = has('--dry-run')
-const URL_ = ARGV.find((a) => a.startsWith('http')) || val('--url', 'https://deskcrew.io/api/x402/paid/ping')
-const BODY = ARGV.find((a) => a.trim().startsWith('{')) || val('--body', '{}')
+const URL_ = val('--url', null) || ARGV.find((a) => a.startsWith('http')) || 'https://deskcrew.io/api/x402/paid/ping'
+const BODY = val('--body', null) || ARGV.find((a) => a.trim().startsWith('{')) || '{}'
+
+// The ceiling the SERVER CANNOT INFLUENCE. Without it the only check before signing
+// was "can you afford this", which a hostile endpoint satisfies by quoting exactly
+// your balance. Deliberately small: this tool exists to try a few-cent payment, so
+// anything larger should be a conscious act.
+const MAX_PRICE_USDC = Number(val('--max-price', '1'))
+if (!Number.isFinite(MAX_PRICE_USDC) || MAX_PRICE_USDC <= 0) {
+  console.error('--max-price must be a positive number of USDC')
+  process.exit(2)
+}
 
 const out = { steps: [] }
 const say = (human, data) => {
@@ -140,8 +166,43 @@ const netName = pick.network
 const net = NETWORKS[netName] || Object.values(NETWORKS).find((n) => `eip155:${n.chain.id}` === netName)
 if (!net) die(`this tool does not yet know how to pay on "${netName}". Known: ${Object.keys(NETWORKS).join(', ')}`)
 
+// ⚠️ THE SERVER DOES NOT GET TO CHOOSE THE TOKEN.
+// `pick.asset` used to flow straight into the EIP-712 `verifyingContract`, while the
+// balance check below read the canonical USDC for the chain. A hostile endpoint could
+// therefore quote a DIFFERENT EIP-3009 token (EURC on Base, say), have us sign an
+// authorization against that contract, and pass a USDC balance check that had nothing
+// to do with what was being spent. The theft would then be reported as
+// "spent: 0.000000 USDC" because the summary re-reads USDC too.
+//
+// We already know the right contract and its EIP-712 domain name for every chain we
+// support, verified on-chain, so there is no reason to take the server's word.
+// This tool pays USDC. If a server wants something else, it can say so and we refuse.
+if (pick.asset && pick.asset.toLowerCase() !== net.usdc.toLowerCase()) {
+  die(
+    `this server wants to be paid in a token that is not the canonical USDC on ${netName}.\n` +
+      `  it asked for: ${pick.asset}\n` +
+      `  USDC on ${netName} is: ${net.usdc}\n` +
+      `  Refusing: try-x402 only pays USDC, and signing against an unknown contract is how funds get taken.`,
+    { refused: 'non-usdc-asset', requestedAsset: pick.asset },
+  )
+}
+
 const atomic = BigInt(pick.maxAmountRequired ?? pick.amount ?? 0)
 const price = formatUnits(atomic, 6)
+
+// ⚠️ A CEILING THE SERVER CANNOT MOVE.
+// The only gate before signing used to be "is your balance >= this", which asks
+// whether you CAN pay, never whether you AGREED to. A hostile endpoint satisfies it
+// by quoting exactly your balance, and drains the wallet in one signature. Balances
+// are public, so it does not even need to ask.
+if (atomic > BigInt(Math.round(MAX_PRICE_USDC * 1e6))) {
+  die(
+    `this server asked for ${price} USDC, above the ${MAX_PRICE_USDC} USDC limit.\n` +
+      `  Nothing was signed. If you genuinely mean to pay that much:\n\n` +
+      `      npx try-x402 --url ${URL_} --max-price ${price}`,
+    { refused: 'over-max-price', priceUsdc: price, maxPriceUsdc: String(MAX_PRICE_USDC) },
+  )
+}
 say(`\nserver wants ${price} USDC on ${netName} (${dialect} dialect)`, {
   dialect, network: netName, priceUsdc: price, payTo: pick.payTo,
 })
@@ -213,23 +274,30 @@ const authorization = {
   to: pick.payTo,
   value: atomic.toString(),
   validAfter: '0',
-  validBefore: String(now + (pick.maxTimeoutSeconds ?? 300)),
+  // Clamped. An unclamped server value lets a hostile endpoint hold a valid
+  // authorization over your wallet for years and settle it whenever it suits them.
+  validBefore: String(now + Math.min(Number(pick.maxTimeoutSeconds) || 300, 600)),
   nonce,
 }
 // The EIP-712 domain name must match what the USDC contract reports, which differs by
 // chain. Read it rather than assume, then fall back to the server's own hint.
 let domainName = net.domain
 try {
-  domainName = await pub.readContract({ address: pick.asset ?? net.usdc, abi: ERC20, functionName: 'name' })
+  domainName = await pub.readContract({ address: net.usdc, abi: ERC20, functionName: 'name' })
 } catch { /* keep the table value */ }
-const domainVersion = pick.extra?.version ?? '2'
+// EIP-3009 USDC deployments are all version "2". Taking this from the challenge let a
+// server complete the shaping of a domain it should have no say in at all.
+const domainVersion = '2'
 
 const signature = await account.signTypedData({
   domain: {
-    name: pick.extra?.name ?? domainName,
+    // All four fields from OUR pinned table, never from the challenge. The asset was
+    // already checked to equal net.usdc above, so there is nothing the server can
+    // shift here: not the token, not the chain, not the domain the signature binds to.
+    name: domainName,
     version: domainVersion,
     chainId: net.chain.id,
-    verifyingContract: pick.asset ?? net.usdc,
+    verifyingContract: net.usdc,
   },
   types: {
     TransferWithAuthorization: [

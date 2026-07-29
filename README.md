@@ -20,6 +20,22 @@ it will tell you that and stop rather than wait around.
 
 ![try-x402 reading the payment terms of a live x402 endpoint](https://raw.githubusercontent.com/webmilmind1/try-x402/main/demo.gif)
 
+## Safety
+
+This signs authorizations that move real money, so it refuses rather than trusts:
+
+- **It only pays USDC.** If a server quotes a different token, it stops. The EIP-712
+  domain is built entirely from a local table, so a server cannot choose which
+  contract your signature binds to.
+- **There is a price ceiling.** `1` USDC by default, `--max-price` to raise it. Without
+  one, the only check is whether you can afford the amount, which a hostile endpoint
+  satisfies by quoting exactly your balance.
+- **Signed authorizations expire in 10 minutes**, however long the server asks for.
+- **Unknown flags are fatal**, and `--flag=value` works. A silently ignored `--dry-run`
+  is a silent payment.
+
+Use a throwaway wallet anyway. The tool generates one if you have no key.
+
 ## What this is
 
 [x402](https://x402.org) is an open standard where a server answers `HTTP 402 Payment
