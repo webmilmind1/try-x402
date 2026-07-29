@@ -160,17 +160,47 @@ say(`\nyour balance: ${formatUnits(bal, 6)} USDC on ${netName}`, { balanceUsdc: 
 
 if (bal < atomic) {
   if (JSON_OUT) die(`insufficient USDC: need ${price}, have ${formatUnits(bal, 6)}`, { needUsdc: price })
+
+  // A GENERATED wallet with no money is the default first run: someone typed
+  // `npx try-x402` to see what happens. Waiting for them to fund an address they
+  // met two seconds ago is not a real workflow, and silently polling for it looks
+  // exactly like the program has hung. So say what happened and stop.
+  if (generated) {
+    console.log(`\n  This run made a brand new wallet, so it holds no USDC and cannot pay.\n`)
+    console.log(`  To watch the whole flow without spending anything:\n`)
+    console.log(`      npx try-x402 --dry-run\n`)
+    console.log(`  To actually pay, use a wallet that already holds USDC:\n`)
+    console.log(`      export X402_KEY=0xyour_private_key`)
+    console.log(`      npx try-x402\n`)
+    console.log(`  Or fund this address with at least ${price} USDC on ${netName} and re-run`)
+    console.log(`  with the key printed above:\n`)
+    console.log(`      ${account.address}\n`)
+    console.log(`  You never need ETH for gas. The server pays it.`)
+    die('no funds in a freshly generated wallet')
+  }
+
+  // A wallet the caller SUPPLIED is a different situation: they meant to pay and may
+  // be topping it up right now, so waiting is genuinely useful. Bounded, with the
+  // time shown, and with the way out stated before the wait starts rather than after.
+  const WAIT_MS = 3 * 60 * 1000
   console.log(`\n  Not enough USDC. Send at least ${price} USDC (on ${netName}) to:\n`)
   console.log(`    ${account.address}\n`)
-  console.log('  You do NOT need any ETH: the server pays the gas. Waiting for funds...')
-  const deadline = Date.now() + 10 * 60 * 1000
+  console.log('  You do NOT need any ETH: the server pays the gas.')
+  console.log(`  Waiting up to 3 minutes. Press Ctrl+C to stop, nothing has been spent.\n`)
+  const started = Date.now()
+  const deadline = started + WAIT_MS
   while (bal < atomic && Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 5000))
     bal = await pub.readContract({ address: net.usdc, abi: ERC20, functionName: 'balanceOf', args: [account.address] })
-    process.stdout.write(`\r  balance: ${formatUnits(bal, 6)} USDC   `)
+    const left = Math.max(0, Math.ceil((deadline - Date.now()) / 1000))
+    const line = `  balance: ${formatUnits(bal, 6)} USDC, ${left}s left`
+    // \r only redraws on a terminal. Piped or redirected it just concatenates into
+    // one unreadable line, which is how this looked when it was first reported.
+    if (process.stdout.isTTY) process.stdout.write(`\r${line}   `)
+    else console.log(line)
   }
-  console.log('')
-  if (bal < atomic) die('timed out waiting for funds. Re-run when the USDC has landed.')
+  if (process.stdout.isTTY) console.log('')
+  if (bal < atomic) die('timed out waiting for funds. Re-run once the USDC has landed.')
 }
 
 // ---- 4. sign the payment ---------------------------------------------------------

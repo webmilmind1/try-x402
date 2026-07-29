@@ -8,6 +8,16 @@ npx try-x402 --dry-run
 
 That reads the payment terms and pays nothing. Drop `--dry-run` to actually pay.
 
+Paying for real needs a wallet that already holds USDC:
+
+```
+export X402_KEY=0xyour_private_key
+npx try-x402
+```
+
+Without a key it generates a throwaway wallet, which by definition has no money, so
+it will tell you that and stop rather than wait around.
+
 ![try-x402 reading the payment terms of a live x402 endpoint](https://raw.githubusercontent.com/webmilmind1/try-x402/main/demo.gif)
 
 ## What this is

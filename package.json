@@ -1,14 +1,36 @@
 {
   "name": "try-x402",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Pay a real x402 endpoint from your terminal in about 60 seconds. Works with any x402 server; no account, no API key.",
-  "keywords": ["x402", "payment", "agent", "ai-agent", "usdc", "http-402", "micropayment", "mcp"],
+  "keywords": [
+    "x402",
+    "payment",
+    "agent",
+    "ai-agent",
+    "usdc",
+    "http-402",
+    "micropayment",
+    "mcp"
+  ],
   "license": "MIT",
   "type": "module",
-  "bin": { "try-x402": "./cli.mjs" },
-  "files": ["cli.mjs", "README.md", "LICENSE"],
-  "engines": { "node": ">=18" },
-  "dependencies": { "viem": "^2.21.0" },
-  "repository": { "type": "git", "url": "git+https://github.com/webmilmind1/try-x402.git" },
+  "bin": {
+    "try-x402": "./cli.mjs"
+  },
+  "files": [
+    "cli.mjs",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "viem": "^2.21.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/webmilmind1/try-x402.git"
+  },
   "homepage": "https://deskcrew.io/agents"
 }
