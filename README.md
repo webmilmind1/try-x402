@@ -20,8 +20,9 @@ without a human filling in a signup form.
 Trying it normally means writing a client first, which is where most people stop. This is
 that client, as one command.
 
-It works against **any** x402 server. It defaults to a DeskCrew endpoint because we
-maintain it and it costs two cents, but `--url` points it anywhere.
+It works against **any** x402 server. It defaults to
+`https://deskcrew.io/api/x402/paid/ping` (a [DeskCrew](https://deskcrew.io/agents) demo
+endpoint) because we maintain it and it costs two cents, but `--url` points it anywhere.
 
 ## Usage
 
