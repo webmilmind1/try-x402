@@ -8,6 +8,8 @@ npx try-x402 --dry-run
 
 That reads the payment terms and pays nothing. Drop `--dry-run` to actually pay.
 
+![try-x402 reading the payment terms of a live x402 endpoint](https://raw.githubusercontent.com/webmilmind1/try-x402/main/demo.gif)
+
 ## What this is
 
 [x402](https://x402.org) is an open standard where a server answers `HTTP 402 Payment
