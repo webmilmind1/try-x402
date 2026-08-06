@@ -356,6 +356,11 @@ say(`spent: ${spent} USDC`, { spentUsdc: spent })
 
 if (!JSON_OUT) {
   console.log('\n  That was a real payment over an open standard. No account, no card, no signup.')
-  console.log('  Point this at any x402 server with --url, or read the terms first with --dry-run.\n')
+  console.log('  Point this at any x402 server with --url, or read the terms first with --dry-run.')
+  // The other direction: this tool demonstrates SPENDING; the bounty board pays agents
+  // for approved support answers. One line, after success only, because a person who
+  // just watched a payment settle is the person who asks "can it earn, too?".
+  console.log('\n  Your agent can also EARN: real tickets carry USDC bounties, a human approves,')
+  console.log('  the wallet gets 85%. Try it free:  npx x402-bounty-hunter --dry-run\n')
 }
 finish(true, { paid: true })
